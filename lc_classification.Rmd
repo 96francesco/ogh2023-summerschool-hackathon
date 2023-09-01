@@ -29,6 +29,7 @@ set.seed(123)
 ```
 
 After downloading the data, adjust the working directory to the data folder
+
 ```{r, setup, include=FALSE}
 knitr::opts_knit$set(root.dir = '/home/lucas/Documents/OGH_Summer_school/hackathon_Land_cover_classification/')
 ```
@@ -141,6 +142,9 @@ S2_pr = crop(S2_covs, ext(submission))
 S2_pr = predict(S2_pr, mdl, index = 1, na.rm = TRUE, cores = 1)
 
 levels(S2_pr) = levels(training_set)
+
+# set colors for classes
+colors = c("#1445f9", "#d20000", "#29a329", "#fdd327", "#d9d9d9")
 plot(S2_pr, main = "Prediction", col = colors)
 
 pts_pr = extract(S2_pr, submission)
