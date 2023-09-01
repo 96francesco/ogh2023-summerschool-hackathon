@@ -1,0 +1,151 @@
+---
+title: "lc_classification"
+author: "Francesco Pasanisi and Lucas Rivero Iribarne"
+date: "2023-09-01"
+output: html_document
+---
+
+### Import and upload needed packages
+
+```{r}
+if(!'terra' %in% installed.packages()){install.packages('terra')}
+if(!'ranger' %in% installed.packages()){install.packages('ranger')}
+if(!'yardstick' %in% installed.packages()){install.packages('yardstick')}
+if(!'dplyr' %in% installed.packages()){install.packages('dplyir')}
+```
+
+```{r}
+library("terra")
+library("ranger") # Random Forest model
+library("yardstick") # validation metrics
+library('dplyr')
+```
+
+### Download ground truth data and set seed
+
+```{r}
+set.seed(123)
+
+```
+
+After downloading the data, adjust the working directory to the data folder
+
+```{r}
+setwd('/YOUR-DIRECTORY-HERE/hackathon_Land_cover_classification/')
+
+# referential .tif file to resample 
+ref_rast = 'data/ref_raster/LC09_L2SP_190023_20230622_20230624_02_T1_SR_B1.TIF'
+
+
+```
+
+```{r}
+# get training and validation sets
+training_set_dir = "data/training_set.tif"
+training_set = rast(training_set_dir)
+
+validation_set_dir = "data/validation_set.tif"
+validation_set = rast(validation_f)
+```
+
+```{r}
+# create classe dataframe
+cls <- data.frame(id=1:5, category=c("water", "buildings", "vegetation","cropland", "undeveloped"))
+levels(training) <- cls
+is.factor(training)
+```
+
+```{r}
+# get validation set
+
+```
+
+### Prepare spectral data
+
+Here we get the Sentinel-2 covariates
+
+```{r}
+S2_covs <- list.files("data/covariates/", pattern = ".tif$", full.names = TRUE)
+S2_covs <- terra::rast(S2_covs)
+S2_covs <- terra::project(S2_covs, 'EPSG:2180')
+S2_covs <- terra::resample(S2_covs,project(rast(ref_rast), 'EPSG:2180'), method="bilinear")
+
+# Filtered covariates (after some tests)
+S2_covs <- S2_covs[[c('B02', 'B03', 'B04', 'B8A', 'B11', 'NDVI_act')]]
+```
+
+### Load file for the submission
+
+```{r}
+submission = read.csv("submission.csv")
+submission = vect(submission, geom = c("X", "Y"), crs = "EPSG:2180")
+submission = project(submission, crs(S2_covs))
+```
+
+### Create random sample points for training and validation
+
+```{r}
+train_smp = spatSample(training, size = 20000, method = "random",
+                       as.points = TRUE, values = FALSE, na.rm = TRUE)
+
+x = extract(training, train_smp, ID = FALSE)
+y = extract(S2_covs, project(train_smp, crs(S2_covs)), ID = FALSE)
+train_smp = cbind(x, y) # combine columns
+
+prop.table(table(train_smp$category)) * 100
+
+validation_smp = spatSample(validation, size = 20000, method = "random",
+                            as.points = TRUE, values = FALSE, na.rm = TRUE)
+
+x = extract(validation, validation_smp, ID = FALSE)
+y = extract(S2_covs, project(validation_smp, crs(S2_covs)), ID = FALSE)
+validation_smp = cbind(x, y)
+rm(x, y) # remove unnecessary variables
+```
+
+### Model training
+
+```{r}
+mdl = ranger(category ~ ., data = train_smp, importance = "impurity")
+
+barplot(sort(importance(mdl)), xlab = "Spectral band", main = "Variable importance")
+
+validation_pr = predict(mdl, validation_smp[, -1])
+validation_pr = validation_pr$predictions # select predictions only
+```
+
+### Model validation
+
+```{r}
+validation_smp <- validation_smp %>%
+  left_join(cls, by = c("validation_set" = "id"))
+validation_smp$category <-  factor(validation_smp$category, levels = c("water", "buildings", "vegetation","cropland","undeveloped"))
+```
+
+### Accuracy metrics
+
+```{r}
+# balanced accuracy
+bal_accuracy_vec(validation_smp$category, validation_pr)
+
+# Cohen's kappa
+kap_vec(validation_smp$category, validation_pr)
+
+# confusion matrix
+table(prediction = validation_pr, true = validation_smp$category)
+```
+
+### Create map and prepare submission
+
+```{r}
+S2_pr = crop(S2_covs, ext(submission))
+S2_pr = predict(S2_pr, mdl, index = 1, na.rm = TRUE, cores = 1)
+
+levels(S2_pr) = levels(training)
+plot(S2_pr, main = "Prediction", col = colors)
+
+pts_pr = extract(S2_pr, submission)
+
+ if (!dir.exists("results")) {dir.create("results")}
+write.csv(pts_pr, "results/submission.csv", row.names = FALSE)
+```
