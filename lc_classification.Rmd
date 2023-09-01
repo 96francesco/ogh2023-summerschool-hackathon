@@ -29,10 +29,11 @@ set.seed(123)
 ```
 
 After downloading the data, adjust the working directory to the data folder
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/home/lucas/Documents/OGH_Summer_school/hackathon_Land_cover_classification/')
+```
 
 ```{r}
-setwd('/YOUR-DIRECTORY-HERE/hackathon_Land_cover_classification/')
-
 # referential .tif file to resample 
 ref_rast = 'data/ref_raster/LC09_L2SP_190023_20230622_20230624_02_T1_SR_B1.TIF'
 
@@ -45,19 +46,14 @@ training_set_dir = "data/training_set.tif"
 training_set = rast(training_set_dir)
 
 validation_set_dir = "data/validation_set.tif"
-validation_set = rast(validation_f)
+validation_set = rast(validation_set_dir)
 ```
 
 ```{r}
 # create classe dataframe
 cls <- data.frame(id=1:5, category=c("water", "buildings", "vegetation","cropland", "undeveloped"))
-levels(training) <- cls
-is.factor(training)
-```
-
-```{r}
-# get validation set
-
+levels(training_set) <- cls
+is.factor(training_set)
 ```
 
 ### Prepare spectral data
@@ -85,19 +81,19 @@ submission = project(submission, crs(S2_covs))
 ### Create random sample points for training and validation
 
 ```{r}
-train_smp = spatSample(training, size = 20000, method = "random",
+train_smp = spatSample(training_set, size = 20000, method = "random",
                        as.points = TRUE, values = FALSE, na.rm = TRUE)
 
-x = extract(training, train_smp, ID = FALSE)
+x = extract(training_set, train_smp, ID = FALSE)
 y = extract(S2_covs, project(train_smp, crs(S2_covs)), ID = FALSE)
 train_smp = cbind(x, y) # combine columns
 
 prop.table(table(train_smp$category)) * 100
 
-validation_smp = spatSample(validation, size = 20000, method = "random",
+validation_smp = spatSample(validation_set, size = 20000, method = "random",
                             as.points = TRUE, values = FALSE, na.rm = TRUE)
 
-x = extract(validation, validation_smp, ID = FALSE)
+x = extract(validation_set, validation_smp, ID = FALSE)
 y = extract(S2_covs, project(validation_smp, crs(S2_covs)), ID = FALSE)
 validation_smp = cbind(x, y)
 rm(x, y) # remove unnecessary variables
@@ -119,6 +115,9 @@ validation_pr = validation_pr$predictions # select predictions only
 ```{r}
 validation_smp <- validation_smp %>%
   left_join(cls, by = c("validation_set" = "id"))
+```
+
+```{r}
 validation_smp$category <-  factor(validation_smp$category, levels = c("water", "buildings", "vegetation","cropland","undeveloped"))
 ```
 
@@ -141,7 +140,7 @@ table(prediction = validation_pr, true = validation_smp$category)
 S2_pr = crop(S2_covs, ext(submission))
 S2_pr = predict(S2_pr, mdl, index = 1, na.rm = TRUE, cores = 1)
 
-levels(S2_pr) = levels(training)
+levels(S2_pr) = levels(training_set)
 plot(S2_pr, main = "Prediction", col = colors)
 
 pts_pr = extract(S2_pr, submission)
